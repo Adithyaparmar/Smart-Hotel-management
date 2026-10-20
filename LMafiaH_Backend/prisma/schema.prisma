@@ -1,0 +1,692 @@
+// ============================================================================
+// LUXURY MAFIA HOTEL — Prisma Schema
+// PostgreSQL relational schema for auth, RBAC, rooms, bookings, payments,
+// staff/admin operations, notifications, reviews and the AI Concierge.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------
+
+enum UserRole {
+  CUSTOMER
+  STAFF
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum RoomStatus {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+}
+
+enum BedType {
+  SINGLE
+  DOUBLE
+  QUEEN
+  KING
+  TWIN
+  SUITE
+}
+
+enum ViewType {
+  CITY
+  GARDEN
+  POOL
+  SEA
+  MOUNTAIN
+  COURTYARD
+}
+
+enum AmenityCategory {
+  ROOM
+  HOTEL
+  DINING
+  WELLNESS
+  BUSINESS
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  MOCK
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentTransactionType {
+  ORDER_CREATED
+  PAYMENT_CAPTURED
+  PAYMENT_FAILED
+  WEBHOOK_RECEIVED
+  VERIFICATION_SUCCESS
+  VERIFICATION_FAILED
+}
+
+enum RefundStatus {
+  INITIATED
+  PROCESSED
+  FAILED
+}
+
+enum StaffDepartment {
+  FRONT_DESK
+  HOUSEKEEPING
+  CONCIERGE
+  MANAGEMENT
+  SECURITY
+  FOOD_AND_BEVERAGE
+}
+
+enum Shift {
+  MORNING
+  EVENING
+  NIGHT
+}
+
+enum TaskType {
+  HOUSEKEEPING
+  MAINTENANCE
+  GUEST_REQUEST
+  CHECK_IN_PREP
+  CHECK_OUT_PREP
+  OTHER
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum LoyaltyTier {
+  SILVER
+  GOLD
+  PLATINUM
+  DON
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  PAYMENT_CONFIRMATION
+  CANCELLATION
+  CHECKIN_REMINDER
+  CHECKOUT_REMINDER
+  STAFF_ALERT
+  ADMIN_ALERT
+  GENERAL
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SOCKET
+}
+
+enum AIConversationStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum AIMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+enum AIMemoryCategory {
+  ROOM_PREFERENCE
+  VIEW_PREFERENCE
+  HOSPITALITY_PREFERENCE
+  CONVERSATION_CONTEXT
+  OTHER
+}
+
+// -----------------------------------------------------------------------
+// AUTH / RBAC / USERS
+// -----------------------------------------------------------------------
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  phone             String?   @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  role              UserRole  @default(CUSTOMER)
+  isActive          Boolean   @default(true)
+  isEmailVerified   Boolean   @default(false)
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  customerProfile   CustomerProfile?
+  staffProfile      StaffProfile?
+
+  refreshTokens        RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
+
+  bookings          Booking[]              @relation("CustomerBookings")
+  bookingStatusChanges BookingStatusHistory[] @relation("StatusChangedBy")
+  assignedTasks     StaffTask[]            @relation("AssignedTasks")
+  createdTasks      StaffTask[]            @relation("CreatedTasks")
+  notifications     Notification[]
+  reviews           Review[]
+  aiConversations   AIConversation[]
+  aiMemories        AIMemory[]
+  auditLogs         AuditLog[]
+  hotelSettingEdits HotelSetting[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique // CUSTOMER | STAFF | ADMIN | SUPER_ADMIN
+  description String?
+  createdAt   DateTime @default(now())
+
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique // e.g. "rooms:create", "bookings:cancel:any"
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  userAgent  String?
+  ipAddress  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorUserId  String?
+  action       String
+  entityType   String
+  entityId     String?
+  metadata     Json?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------
+// CUSTOMER / STAFF PROFILES
+// -----------------------------------------------------------------------
+
+model CustomerProfile {
+  id              String       @id @default(uuid())
+  userId          String       @unique
+  loyaltyTier     LoyaltyTier  @default(SILVER)
+  preferredView   ViewType?
+  preferredBed    BedType?
+  address         String?
+  city            String?
+  country         String?
+  preferences     Json?        // free-form non-sensitive hospitality preferences
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("customer_profiles")
+}
+
+model StaffProfile {
+  id            String          @id @default(uuid())
+  userId        String          @unique
+  employeeCode  String          @unique
+  department    StaffDepartment
+  position      String
+  shift         Shift
+  hiredAt       DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([department])
+  @@map("staff_profiles")
+}
+
+// -----------------------------------------------------------------------
+// ROOMS / ROOM TYPES / AMENITIES
+// -----------------------------------------------------------------------
+
+model RoomType {
+  id               String   @id @default(uuid())
+  name             String   @unique
+  description      String
+  basePrice        Decimal  @db.Decimal(10, 2)
+  capacityAdults   Int      @default(2)
+  capacityChildren Int      @default(0)
+  sizeSqft         Int
+  bedType          BedType
+  defaultView      ViewType
+  images           String[]
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  rooms Room[]
+
+  @@map("room_types")
+}
+
+model Amenity {
+  id          String          @id @default(uuid())
+  name        String          @unique
+  icon        String?
+  category    AmenityCategory @default(ROOM)
+  description String?
+  createdAt   DateTime        @default(now())
+
+  rooms RoomAmenity[]
+
+  @@map("amenities")
+}
+
+model Room {
+  id               String     @id @default(uuid())
+  roomNumber       String     @unique
+  name             String
+  roomTypeId       String
+  description      String
+  floor            Int
+  price            Decimal?   @db.Decimal(10, 2) // overrides RoomType.basePrice when set
+  capacityAdults   Int        @default(2)
+  capacityChildren Int        @default(0)
+  sizeSqft         Int
+  bedType          BedType
+  viewType         ViewType
+  images           String[]
+  status           RoomStatus @default(AVAILABLE)
+  isActive         Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  roomType  RoomType      @relation(fields: [roomTypeId], references: [id])
+  amenities RoomAmenity[]
+  bookings  Booking[]
+  tasks     StaffTask[]
+  reviews   Review[]
+
+  @@index([roomTypeId])
+  @@index([status])
+  @@index([isActive])
+  @@map("rooms")
+}
+
+model RoomAmenity {
+  roomId    String
+  amenityId String
+
+  room    Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  amenity Amenity @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, amenityId])
+  @@map("room_amenities")
+}
+
+// -----------------------------------------------------------------------
+// BOOKINGS
+// -----------------------------------------------------------------------
+
+model Booking {
+  id             String        @id @default(uuid())
+  bookingNumber  String        @unique
+  customerId     String
+  roomId         String
+  checkInDate    DateTime      @db.Date
+  checkOutDate   DateTime      @db.Date
+  nights         Int
+  numAdults      Int           @default(1)
+  numChildren    Int           @default(0)
+  status         BookingStatus @default(PENDING)
+
+  roomSubtotal          Decimal @db.Decimal(10, 2)
+  taxAmount             Decimal @db.Decimal(10, 2)
+  serviceChargeAmount   Decimal @db.Decimal(10, 2)
+  discountAmount        Decimal @default(0) @db.Decimal(10, 2)
+  additionalChargesAmount Decimal @default(0) @db.Decimal(10, 2)
+  totalAmount           Decimal @db.Decimal(10, 2)
+  priceBreakdown        Json    // full itemized snapshot at time of booking
+
+  specialRequests   String?
+  actualCheckInAt   DateTime?
+  actualCheckOutAt  DateTime?
+  cancelledAt       DateTime?
+  cancellationReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer User @relation("CustomerBookings", fields: [customerId], references: [id])
+  room     Room @relation(fields: [roomId], references: [id])
+
+  guests         BookingGuest[]
+  statusHistory  BookingStatusHistory[]
+  payments       Payment[]
+  review         Review?
+  tasks          StaffTask[]
+
+  @@index([roomId, checkInDate, checkOutDate])
+  @@index([customerId])
+  @@index([status])
+  @@map("bookings")
+}
+
+model BookingGuest {
+  id        String  @id @default(uuid())
+  bookingId String
+  fullName  String
+  age       Int?
+  idType    String?
+  idNumber  String?
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("booking_guests")
+}
+
+model BookingStatusHistory {
+  id             String        @id @default(uuid())
+  bookingId      String
+  fromStatus     BookingStatus?
+  toStatus       BookingStatus
+  changedByUserId String?
+  reason         String?
+  createdAt      DateTime      @default(now())
+
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation("StatusChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@map("booking_status_history")
+}
+
+// -----------------------------------------------------------------------
+// PAYMENTS
+// -----------------------------------------------------------------------
+
+model Payment {
+  id               String          @id @default(uuid())
+  bookingId        String
+  provider         PaymentProvider
+  amount           Decimal         @db.Decimal(10, 2)
+  currency         String          @default("INR")
+  status           PaymentStatus   @default(CREATED)
+  providerOrderId  String?
+  providerPaymentId String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  booking      Booking              @relation(fields: [bookingId], references: [id])
+  transactions PaymentTransaction[]
+  refunds      Refund[]
+
+  @@index([bookingId])
+  @@index([status])
+  @@map("payments")
+}
+
+model PaymentTransaction {
+  id         String                 @id @default(uuid())
+  paymentId  String
+  type       PaymentTransactionType
+  rawPayload Json?
+  createdAt  DateTime               @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("payment_transactions")
+}
+
+model Refund {
+  id                String       @id @default(uuid())
+  paymentId         String
+  amount            Decimal      @db.Decimal(10, 2)
+  reason            String?
+  status            RefundStatus @default(INITIATED)
+  providerRefundId  String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+// -----------------------------------------------------------------------
+// STAFF OPERATIONS
+// -----------------------------------------------------------------------
+
+model StaffTask {
+  id           String       @id @default(uuid())
+  assignedToId String?
+  createdById  String
+  type         TaskType
+  title        String
+  description  String?
+  roomId       String?
+  bookingId    String?
+  priority     TaskPriority @default(MEDIUM)
+  status       TaskStatus   @default(PENDING)
+  dueAt        DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  assignedTo User?    @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy  User     @relation("CreatedTasks", fields: [createdById], references: [id])
+  room       Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([assignedToId])
+  @@index([status])
+  @@map("staff_tasks")
+}
+
+// -----------------------------------------------------------------------
+// NOTIFICATIONS
+// -----------------------------------------------------------------------
+
+model Notification {
+  id        String               @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  channel   NotificationChannel  @default(IN_APP)
+  isRead    Boolean              @default(false)
+  readAt    DateTime?
+  createdAt DateTime             @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// -----------------------------------------------------------------------
+// REVIEWS
+// -----------------------------------------------------------------------
+
+model Review {
+  id             String   @id @default(uuid())
+  bookingId      String   @unique
+  customerId     String
+  roomId         String
+  rating         Int
+  title          String?
+  comment        String?
+  staffResponse  String?
+  isPublished    Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  booking  Booking @relation(fields: [bookingId], references: [id])
+  customer User    @relation(fields: [customerId], references: [id])
+  room     Room    @relation(fields: [roomId], references: [id])
+
+  @@index([roomId])
+  @@map("reviews")
+}
+
+// -----------------------------------------------------------------------
+// HOTEL SETTINGS
+// -----------------------------------------------------------------------
+
+model HotelSetting {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  value           Json
+  description     String?
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  updatedBy User? @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("hotel_settings")
+}
+
+// -----------------------------------------------------------------------
+// AI CONCIERGE — THE CONSIGLIERE
+// -----------------------------------------------------------------------
+
+model AIConversation {
+  id        String                @id @default(uuid())
+  userId    String
+  title     String?
+  status    AIConversationStatus  @default(ACTIVE)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AIMessage[]
+
+  @@index([userId])
+  @@map("ai_conversations")
+}
+
+model AIMessage {
+  id             String        @id @default(uuid())
+  conversationId String
+  role           AIMessageRole
+  content        String
+  toolName       String?
+  toolPayload    Json?
+  toolResult     Json?
+  createdAt      DateTime      @default(now())
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("ai_messages")
+}
+
+model AIMemory {
+  id        String           @id @default(uuid())
+  userId    String
+  key       String
+  value     Json
+  category  AIMemoryCategory @default(OTHER)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@map("ai_memories")
+}

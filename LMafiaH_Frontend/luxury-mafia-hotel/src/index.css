@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-gold/10;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: #0b0a08;
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: #c6a664;
+    color: #0b0a08;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0b0a08;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #3a3226;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #c6a664;
+  }
+  :focus-visible {
+    outline: 1px solid #c6a664;
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* Cinematic grain overlay, sits above every section */
+  .grain-overlay {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+    opacity: 0.6;
+  }
+
+  .eyebrow {
+    @apply font-body text-[11px] tracking-widest2 uppercase text-gold/80;
+  }
+
+  .display-xl {
+    @apply font-display font-light leading-[0.95] tracking-tight text-ivory;
+    font-size: clamp(2.75rem, 6vw, 6.5rem);
+  }
+
+  .display-lg {
+    @apply font-display font-light leading-[1] tracking-tight text-ivory;
+    font-size: clamp(2.25rem, 4.4vw, 4rem);
+  }
+
+  .display-md {
+    @apply font-display font-light leading-tight text-ivory;
+    font-size: clamp(1.75rem, 2.8vw, 2.75rem);
+  }
+
+  .rule {
+    @apply h-px w-full bg-gradient-to-r from-gold/60 via-gold/10 to-transparent;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-gold px-8 py-4 font-body text-xs font-semibold uppercase tracking-widest2 text-obsidian transition-all duration-500 ease-cinematic hover:bg-ivory;
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 border border-ivory/25 px-8 py-4 font-body text-xs font-semibold uppercase tracking-widest2 text-ivory transition-all duration-500 ease-cinematic hover:border-gold hover:text-gold;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 font-body text-xs font-semibold uppercase tracking-widest2 text-ivory/70 transition-colors duration-300 hover:text-gold;
+  }
+
+  .card-surface {
+    @apply border border-ivory/10 bg-graphite/60;
+  }
+
+  .glass {
+    @apply border border-ivory/10 bg-espresso/70 backdrop-blur-md;
+  }
+}
+
+/* Custom cursor (desktop only, applied via body class in CustomCursor.jsx) */
+@media (min-width: 1024px) {
+  .cursor-enabled,
+  .cursor-enabled * {
+    cursor: none !important;
+  }
+}
